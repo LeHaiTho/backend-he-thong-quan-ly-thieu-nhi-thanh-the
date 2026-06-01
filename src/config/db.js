@@ -15,15 +15,17 @@ const pool = mysql.createPool({
 // Chuyển sang dạng promise để sử dụng async/await
 const promisePool = pool.promise();
 
-// Kiểm tra kết nối
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error('❌ Lỗi kết nối MySQL:', err.message);
-  } else {
-    console.log('✅ Kết nối MySQL thành công!');
-    connection.release();
-  }
-});
+// Kiểm tra kết nối (chỉ chạy ở môi trường development để tránh treo Serverless trên Production)
+if (process.env.NODE_ENV !== 'production') {
+  pool.getConnection((err, connection) => {
+    if (err) {
+      console.error('❌ Lỗi kết nối MySQL:', err.message);
+    } else {
+      console.log('✅ Kết nối MySQL thành công!');
+      connection.release();
+    }
+  });
+}
 
 
 module.exports = promisePool;
