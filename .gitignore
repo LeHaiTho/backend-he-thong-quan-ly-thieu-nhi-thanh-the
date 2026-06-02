@@ -1,5 +1,7 @@
 ## Node
 node_modules/
+fix-vercel-envs.js
+update-env.js
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*

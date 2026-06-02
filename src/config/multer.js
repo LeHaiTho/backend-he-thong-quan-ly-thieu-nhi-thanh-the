@@ -1,11 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-
-// Đảm bảo thư mục uploads tồn tại (Sử dụng /tmp cho môi trường Serverless như Vercel để tránh lỗi ghi đĩa)
-const uploadDir = process.env.NODE_ENV === 'production'
-  ? '/tmp'
-  : path.join(__dirname, '../uploads');
+const { uploadDir } = require('./uploadsDir');
 
 try {
   if (!fs.existsSync(uploadDir)) {

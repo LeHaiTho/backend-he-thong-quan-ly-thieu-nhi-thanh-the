@@ -1,20 +1,31 @@
 # Backend - Hệ thống quản lý Thiếu Nhi Thánh Thể
 
-## Cài đặt
+## Chạy full stack local (khuyến nghị)
+
+Tại **thư mục gốc** repo (cha của `server/`):
+
+```bash
+npm install
+npm run dev
+```
+
+Frontend: http://localhost:5173 — API/ảnh qua proxy, **không** gọi server production.
+
+## Chỉ chạy backend
 
 ```bash
 npm install
 ```
 
-## Cấu hình môi trường
-
-- Copy `.env.example` thành `.env` và điền biến môi trường cần thiết.
-
-## Chạy dev
+Copy `.env.example` → `.env` (MySQL **local**, không dùng Railway production).
 
 ```bash
 npm run dev
 ```
+
+## Deploy tự động
+
+Xem [docs/GITHUB_CI.md](docs/GITHUB_CI.md).
 
 ## Chạy production
 

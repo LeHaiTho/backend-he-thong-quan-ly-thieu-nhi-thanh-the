@@ -1,5 +1,9 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
+const {
+  normalizeStoredMediaPath,
+  enrichMediaList,
+} = require('../utils/mediaPath');
 const { resolvePersonCode } = require('../services/personCodeHelper');
 const { teacherScopeClause } = require('../services/accessScopeService');
 const { denyForbidden, assertTeacherSelfOrElevated } = require('../middlewares/accessScope');
@@ -27,7 +31,7 @@ const getAllTeachers = async (req, res, next) => {
     const [teachers] = await db.query(query, params);
     res.status(200).json({
       success: true,
-      data: teachers
+      data: enrichMediaList(teachers, req),
     });
   } catch (error) {
     next(error);
@@ -56,6 +60,7 @@ const createTeacher = async (req, res, next) => {
       confirmation_date, confirmation_place, confirmation_book, 
       vow_date, level, allow_attendance, status, avatar_url, notes 
     } = req.body;
+    const storedAvatarUrl = normalizeStoredMediaPath(avatar_url);
 
     const teacherCode = await resolvePersonCode(connection, {
       table: 'teachers',
@@ -77,7 +82,7 @@ const createTeacher = async (req, res, next) => {
       family_number, family_code, baptism_date, baptism_place, 
       baptism_book, first_communion_date, first_communion_place, 
       confirmation_date, confirmation_place, confirmation_book, 
-      vow_date, level, allow_attendance, status, avatar_url, notes
+      vow_date, level, allow_attendance, status, storedAvatarUrl, notes
     ]);
 
     await connection.commit();
@@ -120,6 +125,7 @@ const updateTeacher = async (req, res, next) => {
       confirmation_date, confirmation_place, confirmation_book, 
       vow_date, level, allow_attendance, status, avatar_url, notes, end_date
     } = req.body;
+    const storedAvatarUrl = normalizeStoredMediaPath(avatar_url);
 
     await db.query(`
       UPDATE teachers SET 
@@ -140,7 +146,7 @@ const updateTeacher = async (req, res, next) => {
       baptism_book, first_communion_date, first_communion_place, 
       confirmation_date, confirmation_place, confirmation_book, 
       vow_date, level, allow_attendance, status, 
-      avatar_url, notes, end_date, id
+      storedAvatarUrl, notes, end_date, id
     ]);
 
     res.status(200).json({

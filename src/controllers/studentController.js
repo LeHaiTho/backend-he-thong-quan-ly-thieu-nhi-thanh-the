@@ -1,6 +1,11 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 const XLSX = require('xlsx');
+const {
+  normalizeStoredMediaPath,
+  enrichMediaFields,
+  enrichMediaList,
+} = require('../utils/mediaPath');
 
 /** Tiêu đề cột file mẫu / import (tiếng Việt, sheet "Hoc_vien") */
 const IMPORT_HEADERS = {
@@ -278,7 +283,7 @@ const getAllStudents = async (req, res, next) => {
     const [students] = await db.query(query, params);
     res.status(200).json({
       success: true,
-      data: students
+      data: enrichMediaList(students, req),
     });
   } catch (error) {
     next(error);
@@ -309,7 +314,7 @@ const getStudentById = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: students[0]
+      data: enrichMediaFields(students[0], req),
     });
   } catch (error) {
     next(error);
@@ -336,6 +341,7 @@ const createStudent = async (req, res, next) => {
       status, avatar_url, notes,
       academic_year_id, class_id
     } = req.body;
+    const storedAvatarUrl = normalizeStoredMediaPath(avatar_url);
 
     if (class_id && !(await assertClassAccess(req, res, class_id))) {
       await connection.rollback();
@@ -371,7 +377,7 @@ const createStudent = async (req, res, next) => {
       baptism_date, baptism_place, baptism_book,
       first_communion_date, first_communion_place,
       confirmation_date, confirmation_place, confirmation_book,
-      status || 'active', avatar_url, notes
+      status || 'active', storedAvatarUrl, notes
     ]);
 
     // 2. Nếu có thông tin lớp học, tạo enrollment
@@ -416,6 +422,7 @@ const updateStudent = async (req, res, next) => {
       status, avatar_url, notes,
       academic_year_id, class_id
     } = req.body;
+    const storedAvatarUrl = normalizeStoredMediaPath(avatar_url);
 
     if (!(await assertStudentAccess(req, res, id))) {
       await connection.rollback();
@@ -448,7 +455,7 @@ const updateStudent = async (req, res, next) => {
       baptism_place, baptism_book, first_communion_date, 
       first_communion_place, confirmation_date, 
       confirmation_place, confirmation_book, 
-      status, avatar_url, notes, id
+      status, storedAvatarUrl, notes, id
     ]);
 
     // 2. Cập nhật enrollment nếu có thay đổi lớp học
@@ -846,23 +853,28 @@ const lookupStudentPublic = async (req, res, next) => {
       }
     }
 
+    const studentPayload = enrichMediaFields(
+      {
+        id: studentInfo.id,
+        code: studentInfo.code,
+        saint_name: studentInfo.saint_name,
+        first_name: studentInfo.first_name,
+        last_name: studentInfo.last_name,
+        gender: studentInfo.gender,
+        dob: studentInfo.dob,
+        pob: studentInfo.pob,
+        phone: studentInfo.phone,
+        address: studentInfo.address,
+        status: studentInfo.status,
+        avatar_url: studentInfo.avatar_url,
+      },
+      req
+    );
+
     res.status(200).json({
       success: true,
       data: {
-        student: {
-          id: studentInfo.id,
-          code: studentInfo.code,
-          saint_name: studentInfo.saint_name,
-          first_name: studentInfo.first_name,
-          last_name: studentInfo.last_name,
-          gender: studentInfo.gender,
-          dob: studentInfo.dob,
-          pob: studentInfo.pob,
-          phone: studentInfo.phone,
-          address: studentInfo.address,
-          status: studentInfo.status,
-          avatar_url: studentInfo.avatar_url,
-        },
+        student: studentPayload,
         enrollments,
         semester_grades: termResults
       }

@@ -1,3 +1,5 @@
+const { resolveMediaUrl } = require('../utils/mediaPath');
+
 // Controller xử lý upload file
 const uploadFile = (req, res) => {
   if (!req.file) {
@@ -7,9 +9,7 @@ const uploadFile = (req, res) => {
     });
   }
 
-  // Trả về đường dẫn file
   const filePath = `/uploads/${req.file.filename}`;
-  const fullUrl = `${process.env.APP_URL || 'http://localhost:5000'}${filePath}`;
 
   res.status(200).json({
     success: true,
@@ -17,7 +17,7 @@ const uploadFile = (req, res) => {
     data: {
       filename: req.file.filename,
       path: filePath,
-      url: fullUrl,
+      url: resolveMediaUrl(filePath, req),
       mimetype: req.file.mimetype,
       size: req.file.size
     }

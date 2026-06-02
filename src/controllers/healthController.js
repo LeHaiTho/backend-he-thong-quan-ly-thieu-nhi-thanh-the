@@ -1,28 +1,28 @@
 const db = require('../config/db');
 
-// Controller kiểm tra trạng thái server và kết nối database
-const getHealth = async (req, res) => {
+// Controller kiểm tra trạng thái server (+ MySQL khi gọi /api/health/db)
+const getHealth = (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Server is running smoothly',
+    timestamp: new Date().toISOString()
+  });
+};
+
+const getDbHealth = async (req, res, next) => {
   try {
-    // Chạy truy vấn đơn giản để kiểm tra kết nối Database
     await db.query('SELECT 1');
-    
     res.status(200).json({
       success: true,
-      message: 'Server is running smoothly',
-      database: 'connected',
+      message: 'MySQL connected',
       timestamp: new Date().toISOString()
     });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: 'Server is running, but database connection failed',
-      database: 'disconnected',
-      error: err.message,
-      timestamp: new Date().toISOString()
-    });
+  } catch (error) {
+    next(error);
   }
 };
 
 module.exports = {
-  getHealth
+  getHealth,
+  getDbHealth
 };

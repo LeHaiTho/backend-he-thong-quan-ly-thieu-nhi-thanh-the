@@ -1,10 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const path = require('path');
 const routes = require('./routes');
 const logger = require('./middlewares/logging');
 const errorHandler = require('./middlewares/errorHandler');
+const { uploadDir } = require('./config/uploadsDir');
 
 const app = express();
 
@@ -22,8 +22,8 @@ app.use(logger); // Logging request
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// 3. Static files - Cho phép truy cập file trong thư mục uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 3. Static files — cùng thư mục với multer (uploads hoặc /tmp trên Vercel)
+app.use('/uploads', express.static(uploadDir));
 
 // 4. Routes
 app.use('/api', routes);
