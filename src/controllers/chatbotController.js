@@ -345,25 +345,209 @@ function extractNameAfterKeywords(message, keywords) {
   return "";
 }
 
-function parseLegacyToolCall(content) {
-  if (!content) return null;
-  const match = content.match(/<function\s*=\s*([a-zA-Z0-9_]+)>\s*([\s\S]*?)\s*<\/function>/i);
-  if (!match) return null;
-  const functionName = match[1];
-  let functionArgs = {};
+function parseToolArguments(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
   try {
-    functionArgs = JSON.parse(match[2]);
-  } catch (error) {
-    functionArgs = {};
+    return JSON.parse(String(raw).trim());
+  } catch {
+    return {};
   }
-  return { functionName, functionArgs };
+}
+
+/** Groq đôi khi nhét lệnh gọi tool vào content dạng <function=name>{json}</function> */
+function extractLegacyToolCalls(content) {
+  if (!content) return [];
+  const calls = [];
+  const patterns = [
+    /<function\s*=\s*([a-zA-Z0-9_]+)\s*>([\s\S]*?)<\/function>/gi,
+    /<function\s*>\s*([a-zA-Z0-9_]+)\s*([\s\S]*?)<\/function>/gi,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      const functionName = match[1];
+      const argsRaw = (match[2] || '').trim();
+      calls.push({
+        functionName,
+        functionArgs: parseToolArguments(argsRaw),
+      });
+    }
+  }
+  return calls;
+}
+
+function parseLegacyToolCall(content) {
+  const calls = extractLegacyToolCalls(content);
+  return calls[0] || null;
+}
+
+function stripLegacyToolSyntax(content) {
+  if (!content) return '';
+  return content
+    .replace(/<function\s*=\s*[a-zA-Z0-9_]+\s*>[\s\S]*?<\/function>/gi, '')
+    .replace(/<function\s*>\s*[a-zA-Z0-9_]+\s*[\s\S]*?<\/function>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isUserGradeQuery(message) {
+  const n = normalizeText(message);
+  return ['diem', 'ket qua', 'hoc luc', 'bang diem', 'xem diem'].some((k) => n.includes(k));
+}
+
+function collectToolCalls(responseMessage) {
+  const seen = new Set();
+  const calls = [];
+
+  const pushCall = (id, name, args) => {
+    if (!name) return;
+    const key = `${name}:${JSON.stringify(args || {})}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    calls.push({
+      id: id || `call_${Date.now()}_${calls.length}`,
+      name,
+      args: args || {},
+    });
+  };
+
+  for (const tc of responseMessage.tool_calls || []) {
+    if (tc?.function?.name) {
+      pushCall(tc.id, tc.function.name, parseToolArguments(tc.function.arguments));
+    }
+  }
+
+  for (const legacy of extractLegacyToolCalls(responseMessage.content)) {
+    pushCall(null, legacy.functionName, legacy.functionArgs);
+  }
+
+  return calls;
+}
+
+async function executeToolCall(functionName, functionArgs, userMessage) {
+  let functionResult;
+
+  if (functionName === 'getSystemStats') {
+    functionResult = await getSystemStats();
+  } else if (functionName === 'getBlocksAndClasses') {
+    functionResult = await getBlocksAndClasses(functionArgs);
+  } else if (functionName === 'searchStudentByName') {
+    functionResult = await searchStudentByName(functionArgs);
+  } else if (functionName === 'getStudentProfile') {
+    functionResult = await getStudentProfile(functionArgs);
+    if (isUserGradeQuery(userMessage) && functionResult && !functionResult.error) {
+      const studentId = functionResult.id || functionArgs.studentId;
+      if (studentId) {
+        const grades = await getStudentDetailsAndGrades({ studentId });
+        return { profile: functionResult, grades };
+      }
+    }
+  } else if (functionName === 'getStudentDetailsAndGrades') {
+    functionResult = await getStudentDetailsAndGrades(functionArgs);
+  } else {
+    functionResult = { error: 'Công cụ không được hỗ trợ.' };
+  }
+
+  return functionResult;
+}
+
+async function callGroqChat(apiKey, messages, { tools, toolChoice } = {}) {
+  const body = {
+    model: 'llama-3.3-70b-versatile',
+    messages,
+  };
+  if (tools?.length) {
+    body.tools = tools;
+    body.tool_choice = toolChoice || 'auto';
+  }
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Groq API ${response.status}: ${errText}`);
+  }
+
+  return response.json();
+}
+
+function buildSystemPrompt() {
+  return {
+    role: 'system',
+    content: `Bạn là Trợ Lý Giáo Lý Viên và Ban Trị Sự thông minh của Xứ Đoàn Thiếu Nhi Thánh Thể Nhã Lộng.
+Hỗ trợ phụ huynh tra cứu điểm số, tình hình chuyên cần, hồ sơ học viên và thông tin hệ thống (khối, lớp, giáo lý viên, niên học hiện tại).
+QUY TẮC QUAN TRỌNG:
+1. Luôn phản hồi lịch sự, lễ phép (ví dụ: 'Dạ chào anh chị phụ huynh...').
+2. Tra cứu điểm: gọi searchStudentByName (nếu chưa có mã/ID), sau đó getStudentDetailsAndGrades — KHÔNG chỉ getStudentProfile.
+3. KHÔNG tự bịa điểm số. KHÔNG ghi <function=...> hay lệnh tool trong câu trả lời — chỉ dùng tool_calls API.
+4. Nhiều học viên trùng tên: liệt kê kèm mã/ngày sinh để phụ huynh chọn.
+5. getBlocksAndClasses cho phân đoàn/lớp; getSystemStats cho thống kê tổng.`,
+  };
+}
+
+async function runGroqAgent(apiKey, userMessage, chatMessages) {
+  const fullMessages = [buildSystemPrompt(), ...chatMessages];
+  const MAX_ROUNDS = 4;
+
+  for (let round = 0; round < MAX_ROUNDS; round += 1) {
+    const data = await callGroqChat(apiKey, fullMessages, {
+      tools: chatTools,
+      toolChoice: 'auto',
+    });
+    const responseMessage = data.choices[0].message;
+    const toolCalls = collectToolCalls(responseMessage);
+
+    if (toolCalls.length === 0) {
+      const reply = stripLegacyToolSyntax(responseMessage.content);
+      if (reply) return reply;
+      break;
+    }
+
+    const assistantContent = stripLegacyToolSyntax(responseMessage.content);
+    fullMessages.push({
+      role: 'assistant',
+      content: assistantContent || null,
+      tool_calls: toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function',
+        function: {
+          name: tc.name,
+          arguments: JSON.stringify(tc.args),
+        },
+      })),
+    });
+
+    for (const tc of toolCalls) {
+      const functionResult = await executeToolCall(tc.name, tc.args, userMessage);
+      fullMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        name: tc.name,
+        content: JSON.stringify(functionResult),
+      });
+    }
+  }
+
+  const finalData = await callGroqChat(apiKey, fullMessages);
+  const finalReply = stripLegacyToolSyntax(finalData.choices[0].message.content);
+  if (finalReply) return finalReply;
+
+  throw new Error('Groq không trả lời sau khi gọi tool');
 }
 
 // Local mock AI engine as fallback when GROQ_API_KEY is not defined
 async function localFallbackAI(message) {
   const normalizedMsg = normalizeText(message);
   const studentCode = extractStudentCode(message);
-  const isGradeQuery = ["diem", "ket qua", "hoc luc", "bang diem"].some(k => normalizedMsg.includes(k));
+  const isGradeQuery = ["diem", "ket qua", "hoc luc", "bang diem", "xem diem"].some(k => normalizedMsg.includes(k));
   const isProfileQuery = [
     "thong tin hoc vien",
     "ho so hoc vien",
@@ -436,6 +620,14 @@ Anh chị cần em hỗ trợ tra cứu bảng điểm hay thông tin chuyên c�
   if (isGradeQuery) {
     // Attempt to extract name
     const nameKeywords = [
+      "xem điểm của em",
+      "xem diem cua em",
+      "xem điểm của",
+      "xem diem cua",
+      "muốn xem điểm của em",
+      "muon xem diem cua em",
+      "muốn xem điểm",
+      "muon xem diem",
       "điểm của học viên",
       "diem cua hoc vien",
       "điểm của em",
@@ -624,135 +816,19 @@ const handleChat = async (req, res) => {
     });
   }
 
-  // Real Groq API Implementation with Tool Calling Loop
+  // Real Groq API with tool loop
   try {
-    const systemPrompt = {
-      role: "system",
-        content: `Bạn là Trợ Lý Giáo Lý Viên và Ban Trị Sự thông minh của Xứ Đoàn Thiếu Nhi Thánh Thể Nhã Lộng.
- Hỗ trợ phụ huynh tra cứu điểm số, tình hình chuyên cần, hồ sơ học viên và thông tin hệ thống (khối, lớp, giáo lý viên, niên học hiện tại).
- QUY TẮC QUAN TRỌNG:
- 1. Luôn phản hồi lịch sự, lễ phép, tôn trọng, xưng hô phù hợp (ví dụ: 'Dạ chào anh chị phụ huynh, em là Trợ lý ${systemName} AI...', 'Học viên', 'Tên Thánh').
- 2. Nếu câu hỏi liên quan đến điểm số hoặc thông tin hệ thống/hồ sơ học viên, hãy gọi các công cụ (tools) được cung cấp. KHÔNG tự bịa ra điểm số hoặc dữ liệu hệ thống.
- 3. Nếu tìm thấy nhiều học viên trùng tên, hãy liệt kê danh sách kèm Ngày sinh/Mã học viên để phụ huynh xác nhận lại học viên chính xác.
- 4. Khi cần thông tin phân đoàn/lớp chi tiết, hãy gọi getBlocksAndClasses. Khi cần hồ sơ học viên, hãy gọi searchStudentByName trước, sau đó getStudentProfile.
- 5. Nếu học viên chưa có lớp ở niên học hiện tại, có thể hiển thị dữ liệu niên học gần nhất và nêu rõ.
- 6. KHÔNG hiển thị lệnh tool/function trong câu trả lời; chỉ trả về nội dung cho phụ huynh.` 
-      };
-
-    const fullMessages = [systemPrompt, ...messages];
-
-    // Call Groq API via Fetch
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: fullMessages,
-        tools: chatTools,
-        tool_choice: "auto"
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Groq API returned error ${response.status}: ${errText}`);
-    }
-
-    const data = await response.json();
-    const responseMessage = data.choices[0].message;
-    let toolCalls = responseMessage.tool_calls;
-
-    if (!toolCalls || toolCalls.length === 0) {
-      const legacyCall = parseLegacyToolCall(responseMessage.content);
-      if (legacyCall) {
-        toolCalls = [
-          {
-            id: "legacy-tool-1",
-            type: "function",
-            function: {
-              name: legacyCall.functionName,
-              arguments: JSON.stringify(legacyCall.functionArgs || {})
-            }
-          }
-        ];
-        fullMessages.push({
-          role: "assistant",
-          tool_calls: toolCalls
-        });
-      }
-    } else {
-      fullMessages.push(responseMessage);
-    }
-
-    // Check if AI requested a tool call
-    if (toolCalls && toolCalls.length > 0) {
-      for (const toolCall of toolCalls) {
-        const functionName = toolCall.function.name;
-        const functionArgs = JSON.parse(toolCall.function.arguments);
-        let functionResult;
-
-        if (functionName === "getSystemStats") {
-          functionResult = await getSystemStats();
-        } else if (functionName === "getBlocksAndClasses") {
-          functionResult = await getBlocksAndClasses(functionArgs);
-        } else if (functionName === "searchStudentByName") {
-          functionResult = await searchStudentByName(functionArgs);
-        } else if (functionName === "getStudentProfile") {
-          functionResult = await getStudentProfile(functionArgs);
-        } else if (functionName === "getStudentDetailsAndGrades") {
-          functionResult = await getStudentDetailsAndGrades(functionArgs);
-        } else {
-          functionResult = { error: "Công cụ không được hỗ trợ." };
-        }
-
-        fullMessages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          name: functionName,
-          content: JSON.stringify(functionResult)
-        });
-      }
-
-      // Second call to get final conversational response
-      const secondResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: fullMessages
-        })
-      });
-
-      if (!secondResponse.ok) {
-        throw new Error("Lỗi khi gửi kết quả tool gọi hàm lần 2 cho Groq.");
-      }
-
-      const secondData = await secondResponse.json();
-      return res.status(200).json({
-        success: true,
-        reply: secondData.choices[0].message.content
-      });
-    }
-
-    // AI returned conversational reply directly
+    const reply = await runGroqAgent(apiKey, userMessage, messages);
     return res.status(200).json({
       success: true,
-      reply: responseMessage.content
+      reply: stripLegacyToolSyntax(reply),
     });
-
   } catch (error) {
-    console.error("Lỗi khi gọi Groq API:", error);
-    // Graceful fallback to local mock engine to avoid crashing for the user
+    console.error('Lỗi khi gọi Groq API:', error.message);
     const fallbackReply = await localFallbackAI(userMessage);
     return res.status(200).json({
       success: true,
-      reply: `*(Đang hiển thị phản hồi từ Công cụ nội bộ do kết nối Groq gặp sự cố)*\n\n${fallbackReply}`
+      reply: fallbackReply,
     });
   }
 };
