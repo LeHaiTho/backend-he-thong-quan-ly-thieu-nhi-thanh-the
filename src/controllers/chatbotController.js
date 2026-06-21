@@ -340,16 +340,26 @@ async function resolveStudentId(input) {
 }
 
 function extractNameAfterKeywords(message, keywords) {
-  const lowerMsg = (message || "").toLowerCase();
+  if (!message) return '';
+
+  const words = message.trim().split(/\s+/);
+
   for (const keyword of keywords) {
-    const idx = lowerMsg.indexOf(keyword);
-    if (idx !== -1) {
-      const raw = message.substring(idx + keyword.length).trim();
-      const cleaned = raw.replace(/[?.,!]/g, "");
-      if (cleaned) return cleaned;
+    const keyParts = keyword.trim().split(/\s+/).filter(Boolean);
+    if (!keyParts.length) continue;
+
+    const normalizedKey = normalizeText(keyParts.join(' '));
+
+    for (let i = 0; i <= words.length - keyParts.length; i += 1) {
+      const slice = words.slice(i, i + keyParts.length).join(' ');
+      if (normalizeText(slice) !== normalizedKey) continue;
+
+      const remainder = words.slice(i + keyParts.length).join(' ').replace(/[?.,!]/g, '').trim();
+      if (remainder) return remainder;
     }
   }
-  return "";
+
+  return '';
 }
 
 function parseToolArguments(raw) {
