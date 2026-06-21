@@ -415,6 +415,24 @@ function isUserProfileQuery(message) {
   ].some((k) => n.includes(k));
 }
 
+function isUserSystemQuery(message) {
+  const n = normalizeText(message);
+  const isGrade = isUserGradeQuery(message);
+  const isProfile = isUserProfileQuery(message);
+  if (isGrade || isProfile) return false;
+  return [
+    'he thong',
+    'thong ke',
+    'bao nhieu',
+    'phan doan',
+    'khoi',
+    'lop',
+    'nien hoc',
+    'giao ly vien',
+    'giao xu',
+  ].some((k) => n.includes(k));
+}
+
 function collectToolCalls(responseMessage) {
   const seen = new Set();
   const calls = [];
@@ -835,18 +853,17 @@ const handleChat = async (req, res) => {
     });
   }
 
-  // Real Groq API with tool loop
-  try {
-    // Tra cứu điểm/hồ sơ: ưu tiên engine DB local (chính xác tên tiếng Việt hơn LLM)
-    if (isUserGradeQuery(userMessage) || isUserProfileQuery(userMessage)) {
-      const localReply = await localFallbackAI(userMessage);
-      const isGenericMenu = localReply.includes('Anh chị vui lòng nhập câu hỏi hoặc gõ tên học viên');
-      if (!isGenericMenu) {
-        return res.status(200).json({ success: true, reply: localReply });
-      }
-    }
+  // Tra cứu điểm / hồ sơ / thống kê: dùng engine DB (chính xác tên tiếng Việt)
+  if (isUserGradeQuery(userMessage) || isUserProfileQuery(userMessage) || isUserSystemQuery(userMessage)) {
+    const localReply = await localFallbackAI(userMessage);
+    return res.status(200).json({
+      success: true,
+      reply: localReply,
+    });
+  }
 
-    const reply = await runGroqAgent(apiKey, userMessage, messages);
+  // Hội thoại chung: Groq AI
+  try {
     return res.status(200).json({
       success: true,
       reply: stripLegacyToolSyntax(reply),
