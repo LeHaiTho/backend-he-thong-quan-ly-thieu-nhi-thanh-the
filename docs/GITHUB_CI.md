@@ -17,6 +17,7 @@ Workflow: `.github/workflows/deploy.yml`
 - `DB_*` — Railway public host  
 - `JWT_SECRET`, `JWT_EXPIRE`  
 - `APP_URL` = `https://server-two-zeta-47.vercel.app`  
-- `NODE_ENV` = `production`
+- `NODE_ENV` = `production`  
+- `GROQ_API_KEY` = API key từ [Groq Console](https://console.groq.com/keys) (bắt buộc để chatbot trả lời bằng AI trên production)
 
 Frontend repo riêng: [frontend-he-thong-quan-ly-thieu-nhi-thanh-the](https://github.com/LeHaiTho/frontend-he-thong-quan-ly-thieu-nhi-thanh-the)

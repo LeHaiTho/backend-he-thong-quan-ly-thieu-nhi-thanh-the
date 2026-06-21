@@ -610,10 +610,13 @@ const handleChat = async (req, res) => {
   }
 
   const userMessage = messages[messages.length - 1].content;
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY?.trim();
 
   // Use local fallback if API key is not set
-  if (!apiKey || apiKey.startsWith("your_")) {
+  if (!apiKey || apiKey.startsWith('your_')) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[chatbot] GROQ_API_KEY chưa cấu hình trên Vercel — dùng rule-based fallback');
+    }
     const reply = await localFallbackAI(userMessage);
     return res.status(200).json({
       success: true,
