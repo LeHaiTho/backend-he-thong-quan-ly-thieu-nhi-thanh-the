@@ -343,8 +343,11 @@ function extractNameAfterKeywords(message, keywords) {
   if (!message) return '';
 
   const words = message.trim().split(/\s+/);
+  const sortedKeywords = [...keywords].sort(
+    (a, b) => b.trim().split(/\s+/).length - a.trim().split(/\s+/).length
+  );
 
-  for (const keyword of keywords) {
+  for (const keyword of sortedKeywords) {
     const keyParts = keyword.trim().split(/\s+/).filter(Boolean);
     if (!keyParts.length) continue;
 
@@ -355,7 +358,7 @@ function extractNameAfterKeywords(message, keywords) {
       if (normalizeText(slice) !== normalizedKey) continue;
 
       const remainder = words.slice(i + keyParts.length).join(' ').replace(/[?.,!]/g, '').trim();
-      if (remainder) return remainder;
+      if (remainder && !/^(em|hoc vien|hv)$/i.test(remainder)) return remainder;
     }
   }
 
