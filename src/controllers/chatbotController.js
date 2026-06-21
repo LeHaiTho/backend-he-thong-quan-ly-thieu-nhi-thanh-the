@@ -163,8 +163,12 @@ async function getBlocksAndClasses({ blockName } = {}) {
 async function searchStudentByName({ fullName, saintName }) {
   try {
     const code = extractStudentCode(fullName);
-    const cleanedName = fullName ? fullName.replace(code || "", "").trim() : "";
+    const cleanedName = fullName ? fullName.replace(code || '', '').trim() : '';
     const namePattern = cleanedName ? `%${cleanedName}%` : null;
+    const tokens = cleanedName
+      ? cleanedName.split(/\s+/).map((t) => t.trim()).filter(Boolean)
+      : [];
+
     let sql = `
       SELECT id, code, saint_name, first_name, last_name, dob, status 
       FROM students 
@@ -172,33 +176,53 @@ async function searchStudentByName({ fullName, saintName }) {
     `;
     const params = [];
     const clauses = [];
+
     if (namePattern) {
       clauses.push(`
-        CONCAT(first_name, ' ', last_name) LIKE ? 
-        OR CONCAT(last_name, ' ', first_name) LIKE ?
+        CONCAT(COALESCE(saint_name, ''), ' ', last_name, ' ', first_name) LIKE ?
+        OR CONCAT(last_name, ' ', first_name) LIKE ? 
+        OR CONCAT(first_name, ' ', last_name) LIKE ?
         OR first_name LIKE ?
         OR last_name LIKE ?
       `);
-      params.push(namePattern, namePattern, namePattern, namePattern);
+      params.push(namePattern, namePattern, namePattern, namePattern, namePattern);
     }
+
+    if (tokens.length >= 2) {
+      const tokenSql = tokens
+        .map(
+          () => `(first_name LIKE ? OR last_name LIKE ? OR saint_name LIKE ?
+            OR CONCAT(last_name, ' ', first_name) LIKE ?
+            OR CONCAT(first_name, ' ', last_name) LIKE ?)`
+        )
+        .join(' AND ');
+      clauses.push(`(${tokenSql})`);
+      for (const token of tokens) {
+        const part = `%${token}%`;
+        params.push(part, part, part, part, part);
+      }
+    }
+
     if (code) {
-      clauses.push("code = ?");
+      clauses.push('code = ?');
       params.push(code);
     }
+
     if (clauses.length === 0) {
       return [];
     }
-    sql += ` AND (${clauses.join(" OR ")})`;
-    
+
+    sql += ` AND (${clauses.join(' OR ')})`;
+
     if (saintName) {
-      sql += " AND saint_name LIKE ?";
+      sql += ' AND saint_name LIKE ?';
       params.push(`%${saintName}%`);
     }
-    
+
     const [rows] = await db.query(sql, params);
     return rows;
   } catch (error) {
-    console.error("Lỗi searchStudentByName:", error);
+    console.error('Lỗi searchStudentByName:', error);
     return [];
   }
 }
