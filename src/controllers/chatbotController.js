@@ -365,6 +365,14 @@ function extractNameAfterKeywords(message, keywords) {
   return '';
 }
 
+function cleanExtractedStudentName(name) {
+  if (!name) return '';
+  return name
+    .replace(/^(em|học viên|hoc vien)\s+/i, '')
+    .replace(/[?.,!]/g, '')
+    .trim();
+}
+
 function parseToolArguments(raw) {
   if (raw == null || raw === '') return {};
   if (typeof raw === 'object') return raw;
@@ -687,11 +695,12 @@ Anh chị cần em hỗ trợ tra cứu bảng điểm hay thông tin chuyên c�
       "kết quả của",
       "ket qua cua"
     ];
-    let extractedName = extractNameAfterKeywords(message, nameKeywords);
+    let extractedName = cleanExtractedStudentName(extractNameAfterKeywords(message, nameKeywords));
 
     if (!extractedName && message.split(" ").length <= 4) {
-      // If short message and has no keyword, treat the whole message minus words as the name
-      extractedName = message.replace(/(điểm|diem|kết quả|ket qua|học lực|hoc luc|của|cua|em)/gi, "").trim();
+      extractedName = cleanExtractedStudentName(
+        message.replace(/(điểm|diem|kết quả|ket qua|học lực|hoc luc|của|cua|em)/gi, '').trim()
+      );
     }
 
     const lookupQuery = studentCode || extractedName;
