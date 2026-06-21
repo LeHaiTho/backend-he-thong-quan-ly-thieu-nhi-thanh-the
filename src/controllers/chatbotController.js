@@ -164,55 +164,37 @@ async function searchStudentByName({ fullName, saintName }) {
   try {
     const code = extractStudentCode(fullName);
     const cleanedName = fullName ? fullName.replace(code || '', '').trim() : '';
-    const namePattern = cleanedName ? `%${cleanedName}%` : null;
-    const tokens = cleanedName
-      ? cleanedName.split(/\s+/).map((t) => t.trim()).filter(Boolean)
-      : [];
+
+    if (!cleanedName && !code) {
+      return [];
+    }
+
+    const params = [];
+    const clauses = [];
+
+    if (cleanedName) {
+      const namePattern = `%${cleanedName}%`;
+      clauses.push(`(
+        CONCAT(first_name, ' ', last_name) LIKE ?
+        OR CONCAT(last_name, ' ', first_name) LIKE ?
+        OR first_name LIKE ?
+        OR last_name LIKE ?
+        OR saint_name LIKE ?
+        OR CONCAT(COALESCE(saint_name, ''), ' ', last_name, ' ', first_name) LIKE ?
+      )`);
+      params.push(namePattern, namePattern, namePattern, namePattern, namePattern, namePattern);
+    }
+
+    if (code) {
+      clauses.push('LOWER(TRIM(code)) = LOWER(TRIM(?))');
+      params.push(code.trim());
+    }
 
     let sql = `
       SELECT id, code, saint_name, first_name, last_name, dob, status 
       FROM students 
-      WHERE deleted_at IS NULL
+      WHERE deleted_at IS NULL AND (${clauses.join(' OR ')})
     `;
-    const params = [];
-    const clauses = [];
-
-    if (namePattern) {
-      clauses.push(`
-        CONCAT(COALESCE(saint_name, ''), ' ', last_name, ' ', first_name) LIKE ?
-        OR CONCAT(last_name, ' ', first_name) LIKE ? 
-        OR CONCAT(first_name, ' ', last_name) LIKE ?
-        OR first_name LIKE ?
-        OR last_name LIKE ?
-      `);
-      params.push(namePattern, namePattern, namePattern, namePattern, namePattern);
-    }
-
-    if (tokens.length >= 2) {
-      const tokenSql = tokens
-        .map(
-          () => `(first_name LIKE ? OR last_name LIKE ? OR saint_name LIKE ?
-            OR CONCAT(last_name, ' ', first_name) LIKE ?
-            OR CONCAT(first_name, ' ', last_name) LIKE ?)`
-        )
-        .join(' AND ');
-      clauses.push(`(${tokenSql})`);
-      for (const token of tokens) {
-        const part = `%${token}%`;
-        params.push(part, part, part, part, part);
-      }
-    }
-
-    if (code) {
-      clauses.push('code = ?');
-      params.push(code);
-    }
-
-    if (clauses.length === 0) {
-      return [];
-    }
-
-    sql += ` AND (${clauses.join(' OR ')})`;
 
     if (saintName) {
       sql += ' AND saint_name LIKE ?';
@@ -857,14 +839,8 @@ const handleChat = async (req, res) => {
     // Tra cứu điểm/hồ sơ: ưu tiên engine DB local (chính xác tên tiếng Việt hơn LLM)
     if (isUserGradeQuery(userMessage) || isUserProfileQuery(userMessage)) {
       const localReply = await localFallbackAI(userMessage);
-      const resolvedLocally =
-        localReply.includes('BẢNG ĐIỂM') ||
-        localReply.includes('chưa thấy kết quả') ||
-        localReply.includes('tìm thấy **') ||
-        localReply.includes('chưa tìm thấy học viên') ||
-        localReply.includes('Thông tin học viên') ||
-        localReply.includes('thống kê tổng quan');
-      if (resolvedLocally) {
+      const isGenericMenu = localReply.includes('Anh chị vui lòng nhập câu hỏi hoặc gõ tên học viên');
+      if (!isGenericMenu) {
         return res.status(200).json({ success: true, reply: localReply });
       }
     }
