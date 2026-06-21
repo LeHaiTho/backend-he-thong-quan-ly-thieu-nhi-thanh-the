@@ -697,7 +697,16 @@ Anh chị cần em hỗ trợ tra cứu bảng điểm hay thông tin chuyên c�
     ];
     let extractedName = cleanExtractedStudentName(extractNameAfterKeywords(message, nameKeywords));
 
-    if (!extractedName && message.split(" ").length <= 4) {
+    if (!extractedName) {
+      const tailMatch = message.match(
+        /(?:muốn|muon\s+)?(?:xem\s+)?(?:di[eê]m|diem)\s+(?:c[uù]a\s+)?(?:em\s+)?(.+)$/iu
+      );
+      if (tailMatch?.[1]) {
+        extractedName = cleanExtractedStudentName(tailMatch[1]);
+      }
+    }
+
+    if (!extractedName && message.split(/\s+/).length <= 4) {
       extractedName = cleanExtractedStudentName(
         message.replace(/(điểm|diem|kết quả|ket qua|học lực|hoc luc|của|cua|em)/gi, '').trim()
       );
