@@ -421,7 +421,11 @@ function stripLegacyToolSyntax(content) {
 
 function isUserGradeQuery(message) {
   const n = normalizeText(message);
-  return ['diem', 'ket qua', 'hoc luc', 'bang diem', 'xem diem'].some((k) => n.includes(k));
+  if (['diem', 'ket qua', 'hoc luc', 'bang diem', 'xem diem'].some((k) => n.includes(k))) {
+    return true;
+  }
+  // Phòng trường hợp chuỗi có "điểm" trước khi normalize
+  return /điểm/i.test(message || '');
 }
 
 function isUserProfileQuery(message) {
@@ -605,7 +609,7 @@ async function runGroqAgent(apiKey, userMessage, chatMessages) {
 async function localFallbackAI(message) {
   const normalizedMsg = normalizeText(message);
   const studentCode = extractStudentCode(message);
-  const isGradeQuery = ["diem", "ket qua", "hoc luc", "bang diem", "xem diem"].some(k => normalizedMsg.includes(k));
+  const isGradeQuery = isUserGradeQuery(message);
   const isProfileQuery = [
     "thong tin hoc vien",
     "ho so hoc vien",
