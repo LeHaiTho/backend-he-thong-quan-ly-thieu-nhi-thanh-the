@@ -420,6 +420,18 @@ function isUserGradeQuery(message) {
   return ['diem', 'ket qua', 'hoc luc', 'bang diem', 'xem diem'].some((k) => n.includes(k));
 }
 
+function isUserProfileQuery(message) {
+  const n = normalizeText(message);
+  return [
+    'thong tin hoc vien',
+    'ho so hoc vien',
+    'thong tin ca nhan',
+    'phu huynh',
+    'so dien thoai',
+    'dia chi',
+  ].some((k) => n.includes(k));
+}
+
 function collectToolCalls(responseMessage) {
   const seen = new Set();
   const calls = [];
@@ -842,6 +854,21 @@ const handleChat = async (req, res) => {
 
   // Real Groq API with tool loop
   try {
+    // Tra cứu điểm/hồ sơ: ưu tiên engine DB local (chính xác tên tiếng Việt hơn LLM)
+    if (isUserGradeQuery(userMessage) || isUserProfileQuery(userMessage)) {
+      const localReply = await localFallbackAI(userMessage);
+      const resolvedLocally =
+        localReply.includes('BẢNG ĐIỂM') ||
+        localReply.includes('chưa thấy kết quả') ||
+        localReply.includes('tìm thấy **') ||
+        localReply.includes('chưa tìm thấy học viên') ||
+        localReply.includes('Thông tin học viên') ||
+        localReply.includes('thống kê tổng quan');
+      if (resolvedLocally) {
+        return res.status(200).json({ success: true, reply: localReply });
+      }
+    }
+
     const reply = await runGroqAgent(apiKey, userMessage, messages);
     return res.status(200).json({
       success: true,
